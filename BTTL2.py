@@ -1,76 +1,165 @@
 import heapq
+import random
 
-def a_star_graph_search(graph, heuristics, start, goal):
+# ==========================================
+# CÁC HÀM HỖ TRỢ SINH ĐỒ THỊ NGẪU NHIÊN
+# ==========================================
+def get_city_label(index):
+    """Chuyển đổi số nguyên thành chuỗi ký tự A-Z, AA-ZZ."""
+    label = ""
+    while index >= 0:
+        label = chr(index % 26 + 65) + label
+        index = index // 26 - 1
+    return label
+
+def generate_random_graph(n, edge_probability=0.6, min_cost=10, max_cost=99):
     """
-    Thuật giải A* tìm đường đi ngắn nhất trong đồ thị.
-    - graph: Từ điển chứa đồ thị {đỉnh: {đỉnh_kề: chi_phí}}
-    - heuristics: Từ điển chứa giá trị h(n) {đỉnh: ước_lượng_đến_đích}
+    Sinh đồ thị ngẫu nhiên.
+    edge_probability: Xác suất có đường nối giữa 2 đỉnh (0.0 đến 1.0).
+    Nếu không có đường nối, chi phí coi như vô cực (không tồn tại cạnh).
     """
-    # Hàng đợi ưu tiên lưu trữ các node để xét duyệt (f_score, node)
-    open_set = []
-    heapq.heappush(open_set, (heuristics[start], start))
+    labels = [get_city_label(i) for i in range(n)]
+    graph = {label: {} for label in labels}
     
-    # Lưu vết đường đi
-    came_from = {}
+    for i in range(n):
+        for j in range(i + 1, n):
+            # random.random() sinh số từ 0.0 đến 1.0
+            if random.random() <= edge_probability:
+                cost = random.randint(min_cost, max_cost)
+                # Đồ thị vô hướng
+                graph[labels[i]][labels[j]] = cost
+                graph[labels[j]][labels[i]] = cost
+            # Nếu lớn hơn xác suất, cạnh không được thêm vào (vô cực)
+            
+    return graph
+
+# ==========================================
+# LÕI THUẬT TOÁN A* / DIJKSTRA TÌM ĐƯỜNG NGẮN NHẤT
+# ==========================================
+class PathNode:
+    __slots__ = ['parent', 'node_id', 'g', 'h', 'f']
+    def __init__(self, parent, node_id, g, h):
+        self.parent = parent
+        self.node_id = node_id
+        self.g = g  # Chi phí thực tế từ điểm bắt đầu
+        self.h = h  # Chi phí ước lượng đến đích (Heuristic)
+        self.f = g + h # Tổng chi phí
+
+    def __lt__(self, other):
+        # Ưu tiên f nhỏ hơn, nếu f bằng nhau thì ưu tiên g lớn hơn (đã đi được xa hơn)
+        if self.f == other.f:
+            return self.g > other.g
+        return self.f < other.f
+
+def heuristic(current_id, target_id):
+    """
+    Vì đồ thị ngẫu nhiên không có tọa độ không gian (x, y), chúng ta không thể 
+    tính khoảng cách đường chim bay (Euclide). Do đó, h = 0 là an toàn nhất.
+    Khi h = 0 cho mọi đỉnh, thuật toán A* sẽ hoạt động như thuật toán Dijkstra.
+    """
+    return 0 
+
+def solve_shortest_path(graph_dict, start_label, target_label):
+    if start_label not in graph_dict or target_label not in graph_dict:
+        print("Lỗi: Đỉnh bắt đầu hoặc đỉnh đích không tồn tại trong đồ thị.")
+        return
+
+    # Khởi tạo Node gốc
+    initial_h = heuristic(start_label, target_label)
+    root = PathNode(None, start_label, 0, initial_h)
     
-    # Bản đồ chi phí thực tế g(n) từ điểm xuất phát đến node hiện tại
-    g_score = {node: float('inf') for node in graph}
-    g_score[start] = 0
+    open_set = [root]
+    
+    # Dùng dictionary để lưu chi phí g tốt nhất đến từng đỉnh 
+    # (giúp tránh việc thăm lại một đỉnh nếu chi phí g cao hơn)
+    best_g = {start_label: 0}
+    
+    explored = set()
     
     while open_set:
-        # Lấy node có f(n) nhỏ nhất
-        current_f, current = heapq.heappop(open_set)
+        current = heapq.heappop(open_set)
         
-        # Nếu đã đến đích, truy vết lại đường đi
-        if current == goal:
-            path = []
-            while current in came_from:
-                path.append(current)
-                current = came_from[current]
-            path.append(start)
-            return path[::-1], g_score[goal]
+        # Nếu đỉnh này đã được chốt với đường đi ngắn nhất
+        if current.node_id in explored:
+            continue
+        explored.add(current.node_id)
+        
+        # KIỂM TRA ĐIỀU KIỆN DỪNG: Đã đến đích
+        if current.node_id == target_label:
+            path_nodes = []
+            curr_trace = current
+            while curr_trace:
+                path_nodes.append(curr_trace)
+                curr_trace = curr_trace.parent
+            path_nodes.reverse()
             
-        # Duyệt qua các đỉnh kề
-        for neighbor, cost in graph[current].items():
-            # Chi phí g(n) tạm tính để đến neighbor
-            tentative_g = g_score[current] + cost
+            print(f"\n--- ĐƯỜNG ĐI TỐI ƯU TỪ {start_label} ĐẾN {target_label} ---")
+            for i, node in enumerate(path_nodes):
+                if i == 0:
+                    print(f"Bắt đầu: {node.node_id:2} | g: {node.g:3}, h: {node.h:3}, f: {node.f:3}")
+                else:
+                    prev_lbl = path_nodes[i-1].node_id
+                    print(f"Bước {i:2}: {prev_lbl:2} -> {node.node_id:2} | g: {node.g:3}, h: {node.h:3}, f: {node.f:3}")
             
-            # Nếu tìm được đường đi tốt hơn
-            if tentative_g < g_score[neighbor]:
-                came_from[neighbor] = current
-                g_score[neighbor] = tentative_g
+            print("-" * 48)
+            print(f"Tổng chi phí đường đi (Total Cost): {current.g}")
+            return
+            
+        # Duyệt các đỉnh kề (chỉ duyệt những đỉnh có đường nối hợp lệ)
+        for neighbor_label, edge_cost in graph_dict[current.node_id].items():
+            if neighbor_label in explored:
+                continue
                 
-                # f(n) = g(n) + h(n)
-                f_score = tentative_g + heuristics[neighbor]
-                heapq.heappush(open_set, (f_score, neighbor))
+            new_g = current.g + edge_cost
+            
+            # Chỉ thêm vào hàng đợi nếu tìm thấy đường ngắn hơn đến đỉnh neighbor này
+            if neighbor_label not in best_g or new_g < best_g[neighbor_label]:
+                best_g[neighbor_label] = new_g
+                new_h = heuristic(neighbor_label, target_label)
+                child = PathNode(current, neighbor_label, new_g, new_h)
+                heapq.heappush(open_set, child)
                 
-    return None, float('inf') # Không tìm thấy đường đi
+    print(f"\n[!] KHÔNG TÌM THẤY ĐƯỜNG ĐI từ {start_label} đến {target_label}.")
+    print("Nguyên nhân: Các đỉnh bị cô lập, đường đi bị đứt đoạn (Vô cực).")
 
-# --- CHƯƠNG TRÌNH CHÍNH ---
+# ==========================================
+# CHẠY CHƯƠNG TRÌNH CHÍNH
+# ==========================================
 if __name__ == "__main__":
-    # Đồ thị mẫu: A, B, C, D, E, F
-    graph = {
-        'A': {'B': 2, 'C': 4},
-        'B': {'A': 2, 'C': 1, 'D': 7},
-        'C': {'A': 4, 'B': 1, 'E': 3},
-        'D': {'B': 7, 'F': 1},
-        'E': {'C': 3, 'D': 2, 'F': 5},
-        'F': {'D': 1, 'E': 5}
-    }
+    while True:
+        try:
+            n_str = input("Nhập số lượng đỉnh n (Khuyến nghị 5 - 20): ")
+            n = int(n_str)
+            if n >= 2:
+                break
+            else:
+                print("Lỗi: Số lượng đỉnh phải lớn hơn hoặc bằng 2.")
+        except ValueError:
+            print("Lỗi: Vui lòng nhập một số nguyên hợp lệ.")
+            
+    print(f"\n[!] Đang khởi tạo đồ thị ngẫu nhiên cho {n} đỉnh...")
+    # Tỷ lệ 0.4 nghĩa là có khoảng 40% khả năng có đường nối giữa 2 đỉnh bất kỳ
+    my_graph = generate_random_graph(n, edge_probability=0.4)
     
-    # Heuristic giả định (ước lượng khoảng cách đến F)
-    heuristics_to_F = {
-        'A': 6, 'B': 5, 'C': 4, 'D': 1, 'E': 3, 'F': 0
-    }
-    
-    start_node = 'A'
-    goal_node = 'F'
-    
-    print("--- TÌM ĐƯỜNG ĐI TRÊN ĐỒ THỊ BẰNG A* ---")
-    path, total_cost = a_star_graph_search(graph, heuristics_to_F, start_node, goal_node)
-    
-    if path:
-        print(f"Đường đi tối ưu từ {start_node} đến {goal_node}: {' -> '.join(path)}")
-        print(f"Tổng chi phí (Cost): {total_cost}")
-    else:
-        print("Không tìm thấy đường đi.")
+    # In ma trận kề ra màn hình để đối chiếu chi phí
+    labels = list(my_graph.keys())
+    print("\n--- MA TRẬN TRỌNG SỐ (INF = Không có đường nối) ---")
+    print("     " + " ".join(f"{lbl:>4}" for lbl in labels))
+    for u in labels:
+        row = []
+        for v in labels:
+            if u == v:
+                row.append("   0")
+            elif v in my_graph[u]:
+                row.append(f"{my_graph[u][v]:4}")
+            else:
+                row.append(" INF")
+        print(f"{u:>2} | " + " ".join(row))
+
+    # Yêu cầu người dùng chọn điểm đầu và cuối
+    print("\nDanh sách các đỉnh:", ", ".join(labels))
+    start_node = input(f"Nhập đỉnh BẮT ĐẦU (ví dụ A): ").strip().upper()
+    end_node = input(f"Nhập đỉnh ĐÍCH (ví dụ {labels[-1]}): ").strip().upper()
+
+    print(f"\n[!] Đang tìm đường đi ngắn nhất...")
+    solve_shortest_path(my_graph, start_node, end_node)
