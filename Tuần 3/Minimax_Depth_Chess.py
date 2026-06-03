@@ -18,6 +18,15 @@ _PST = {
 # N, n: Mã (Knight)
 # P, p: Tốt (Pawn)
 EMPTY = "."
+
+def find_king(board, is_white):
+    """Tìm vị trí Vua trong O(64) nhưng được gọi tập trung 1 lần/nước."""
+    sym = 'K' if is_white else 'k'
+    for r in range(8):
+        for c in range(8):
+            if board[r][c] == sym:
+                return r, c
+    return -1, -1
 WHITE = "WHITE"
 BLACK = "BLACK"
 
@@ -34,6 +43,14 @@ def get_initial_board():
     ]
 
 def initial_state():
+    """
+    1. TRẠNG THÁI BAN ĐẦU (INITIAL STATE)
+       - board         : bàn cờ 8x8 theo bố cục chuẩn Cờ Vua.
+       - turn          : WHITE – trắng đi trước theo luật.
+       - castling      : cả 2 bên đều có quyền nhập thành.
+       - en_passant    : None – không có ô bắt qua.
+       - history_counts: đếm số lần xuất hiện mỗi vị trí (chống lặp 3 lần).
+    """
     b = get_initial_board()
     b_tup = tuple(tuple(r) for r in b)
     return {
@@ -186,6 +203,12 @@ def generate_pseudo_legal_moves(state):
     return moves
 
 def get_winner(state):
+    """
+    Kiểm tra kết quả cuối cùng:
+      - Lặp 3 lần → 'DRAW'.
+      - Hết nước đi + Vua đang bị chiếu → đối phương thắng.
+      - Hết nước đi + Vua không bị chiếu → 'DRAW' (stalemate).
+    """
     # 3-fold repetition
     for cnt in state.get('history_counts', {}).values():
         if cnt >= 3:
@@ -204,6 +227,15 @@ def get_winner(state):
     return None
 
 def utility(state, current_depth=0):
+    """
+    4. HÀM LỢI ÍCH (UTILITY FUNCTION)
+       Đánh giá trạng thái Cờ Vua:
+         - Trắng thắng : +1000 - current_depth.
+         - Đen thắng  : -1000 + current_depth.
+         - Hòa         : 0.
+         - Giữa game  : tổng (PIECE_VAL + PST) Trắng - Đen.
+           PST (Piece-Square Table): ưu đãi vị trí bàn cho từng quân.
+    """
     w = get_winner(state)
     if w == WHITE:  return  1000 - current_depth
     if w == BLACK:  return -1000 + current_depth
@@ -308,6 +340,12 @@ def find_best_move(state, depth):
     return best_move
 
 def terminal(state):
+    """
+    2. TRẠNG THÁI KẾT THÚC (TERMINAL STATE)
+       Trả về True khi:
+         (a) Lặp 3 lần cùng vị trí bàn cờ (hòa cưỡng bức), HOẶC
+         (b) Hết nước đi hợp lệ (Checkmate hoặc Stalemate).
+    """
     # 3-fold repetition → draw
     for cnt in state.get('history_counts', {}).values():
         if cnt >= 3:
@@ -319,6 +357,15 @@ def terminal(state):
 
 
 def successors(state):
+    """
+    3. HÀM CHUYỂN TRẠNG THÁI (SUCCESSORS)
+       Sinh tất cả nước đi hợp lệ từ trạng thái hiện tại.
+       Move Ordering: captures trước, quiet moves sau.
+       Yield: (move, next_state)
+         - move      : ((sr,sc),(er,ec),special) – nước đi.
+         - next_state: dict trạng thái mới sau khi thực hiện nước đi.
+       Chỉ yield nước đi không để Vua bị chiếu.
+    """
     board      = state['board']
     turn       = state['turn']
     is_white   = (turn == WHITE)
@@ -376,14 +423,8 @@ def successors(state):
             if sr == 0 and sc == 7: nc['k'] = False
             if sr == 0 and sc == 0: nc['q'] = False
 
-        # King safety check
-        kr, kc = -1, -1
-        king_sym = 'K' if is_white else 'k'
-        for r in range(8):
-            for c in range(8):
-                if nb[r][c] == king_sym:
-                    kr, kc = r, c; break
-            if kr != -1: break
+        # Tìm Vua (dùng find_king tập trung thay vì scan lặp rải)
+        kr, kc = find_king(nb, is_white)
         if kr == -1 or is_attacked(nb, kr, kc, not is_white):
             continue
 

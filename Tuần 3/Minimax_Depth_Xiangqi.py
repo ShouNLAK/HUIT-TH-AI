@@ -23,6 +23,15 @@ EMPTY = "."
 RED = "RED"
 BLACK = "BLACK"
 
+def find_king_xiangqi(board, is_red):
+    """Tìm vị trí Tướng trong O(90) nhưng tập trung 1 lần/nước."""
+    sym = 'K' if is_red else 'k'
+    for r in range(10):
+        for c in range(9):
+            if board[r][c] == sym:
+                return r, c
+    return -1, -1
+
 def get_initial_board():
     return [
         ['r', 'h', 'e', 'a', 'k', 'a', 'e', 'h', 'r'],
@@ -38,6 +47,13 @@ def get_initial_board():
     ]
 
 def initial_state():
+    """
+    1. TRẠNG THÁI BAN ĐẦU (INITIAL STATE)
+       - board         : bàn cờ 10x9 theo bố cục chuẩn Cờ Tướng.
+       - turn          : RED (Đỏ) – đỏ đi trước theo luật.
+       - played_count  : 0 nước đã đi.
+       - history_counts: đếm số lần xuất hiện mỗi vị trí (chống lặp 3 lần).
+    """
     return {
         'board': get_initial_board(),
         'turn': RED,
@@ -155,13 +171,21 @@ def check_flying_general(board):
     return True
 
 def get_winner(state):
+    """
+    Kiểm tra kết quả: phe nào hết nước đi → đối phương thắng.
+    """
     if not state.get('has_legal_move', True):
         is_red = (state['turn'] == 'RED')
         return 'BLACK' if is_red else 'RED'
     return None
 
 def terminal(state):
-    """Kết thúc khi: một Tướng bị bắt, OR lặp 3 lần (hòa cưỡng bức)."""
+    """
+    2. TRẠNG THÁI KẾT THÚC (TERMINAL STATE)
+       Trả về True khi:
+         (a) Một Tướng bị bắt (không còn 'K' hoặc 'k' trên bảng), HOẶC
+         (b) Lặp 3 lần cùng vị trí bàn cờ (hòa cưỡng bức).
+    """
     board = state['board']
     has_red_king   = any(board[r][c] == 'K' for r in range(10) for c in range(9))
     has_black_king = any(board[r][c] == 'k' for r in range(10) for c in range(9))
@@ -174,7 +198,15 @@ def terminal(state):
     return False
 
 def successors(state):
-    """Sinh nước đi hợp lệ cho Cờ Tướng với move ordering (captures trước)."""
+    """
+    3. HÀM CHUYỂN TRẠNG THÁI (SUCCESSORS)
+       Sinh tất cả nước đi hợp lệ cho Cờ Tướng:
+       Move Ordering: captures trước, quiet moves sau.
+       Lọc bỏ: nước khiến Tướng bị chiếu, hoặc 2 Tướng đối mặt.
+       Yield: (move, next_state)
+         - move      : ((sr,sc),(er,ec)) – nước đi.
+         - next_state: dict trạng thái mới đầy đủ.
+    """
     board  = state['board']
     turn   = state['turn']
     is_red = (turn == 'RED')
@@ -200,6 +232,7 @@ def successors(state):
 
         if check_flying_general(nb):
             continue
+        # Tìm Tướng bị chiếu (dùng is_in_check tập trung)
         if is_in_check(nb, is_red):
             continue
 
@@ -218,7 +251,15 @@ def successors(state):
     state['has_legal_move'] = has_legal
 
 def utility(state, current_depth=0):
-    """Đánh giá thế cờ Cờ Tướng với Piece-Square Tables."""
+    """
+    4. HÀM LỢI ÍCH (UTILITY FUNCTION)
+       Đánh giá thế cờ Cờ Tướng:
+         - Đỏ thắng  : +1000 - current_depth.
+         - Đen thắng  : -1000 + current_depth.
+         - Phạt lặp : 0 nếu lặp ≥ 3 lần.
+         - Giữa game  : tổng (PIECE_VAL + PST) Đỏ - Đen.
+           PST (Piece-Square Table): ưu đãi vị trí cho từng loại quân.
+    """
     w = get_winner(state)
     if w == 'RED':   return  1000 - current_depth
     if w == 'BLACK': return -1000 + current_depth
@@ -309,14 +350,8 @@ def find_best_move(state, depth):
 
 def is_in_check(board, is_red):
     """Kiểm tra xem Tướng của phe is_red có đang bị chiếu không."""
-    king_sym = 'K' if is_red else 'k'
-    kr, kc = -1, -1
-    for r in range(10):
-        for c in range(9):
-            if board[r][c] == king_sym:
-                kr, kc = r, c; break
-        if kr != -1: break
-    if kr == -1: return True  # Tướng bị bắt = đang bị chiếu
+    kr, kc = find_king_xiangqi(board, is_red)
+    if kr == -1: return True
 
     opp_red = not is_red
 

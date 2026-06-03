@@ -2,162 +2,211 @@ import time
 import random
 from heapq import heappush, heappop
 
-# 1. KIỂM TRA TÍNH KHẢ GIẢI (Ngăn chặn vòng lặp vô hạn nếu ma trận ngẫu nhiên bị lỗi)
-def is_solvable(state_1d, n):
-    inversions = 0
-    arr = [x for x in state_1d if x != 0]
-    for i in range(len(arr)):
-        for j in range(i + 1, len(arr)):
-            if arr[i] > arr[j]:
-                inversions += 1
-    
-    blank_idx = state_1d.index(0)
-    blank_row_from_bottom = n - (blank_idx // n)
-    
-    if n % 2 != 0:
-        return inversions % 2 == 0
-    else:
-        return (inversions + blank_row_from_bottom) % 2 == 1
-
-# 2. TẠO TRẠNG THÁI NGẪU NHIÊN HỢP LỆ (Luôn luôn giải được)
-def generate_solvable_state(n):
+# ============================================================
+# 1. TRẠNG THÁI BAN ĐẦU (INITIAL STATE)
+#    Trạng thái = vị trí các ô trên lưới NxN.
+#    Bài toán 1 tác nhân (AI giải), không có lượt người chơi.
+# ============================================================
+def initial_state(n):
+    """
+    Trả về (initial_1d, final_1d, target_pos):
+      - initial_1d : tuple 1D – trạng thái ban đầu ngẫu nhiên hợp lệ.
+      - final_1d   : tuple 1D – trạng thái đích (1,2,...,n²-1,0).
+      - target_pos : dict {tile: (row, col)} – vị trí đích của từng ô.
+    Người/tác nhân đi đầu tiên: thuật toán Weighted A*.
+    """
     N = n * n
+    final = tuple(range(1, N)) + (0,)
+    target_pos = {val: (i // n, i % n) for i, val in enumerate(final)}
     while True:
-        # Trạng thái đích mặc định: Thứ tự tăng dần từ 1 đến (n^2 - 1), ô trống ở cuối (0)
         state = list(range(1, N)) + [0]
         random.shuffle(state)
-        state_tuple = tuple(state)
-        if is_solvable(state_tuple, n):
-            return [list(state_tuple[i*n:(i+1)*n]) for i in range(n)]
+        state_t = tuple(state)
+        if _is_solvable(state_t, n):
+            return state_t, final, target_pos
 
-# 3. CẤU TRÚC NODE TỐI ƯU CỰC NHẸ
+
+# ============================================================
+# 2. TRẠNG THÁI KẾT THÚC (TERMINAL STATE)
+#    Kiểm tra puzzle đã được giải xong chưa.
+# ============================================================
+def terminal(state_1d, final_1d):
+    """
+    Trả về True nếu state_1d == final_1d (đã đến đích).
+    """
+    return state_1d == final_1d
+
+
+# ============================================================
+# 3. HÀM CHUYỂN TRẠNG THÁI (SUCCESSORS)
+#    Trả về iterator của (nước_đi, trạng_thái_mới).
+#    Nước đi = ô được hoán đổi với ô trống.
+# ============================================================
+def successors(state_1d, blank_idx, n):
+    """
+    Sinh tất cả nước đi hợp lệ bằng cách hoán đổi ô trống
+    với các ô kề (trái, phải, trên, dưới).
+    Yield: (tile_from, new_state_1d)
+      - tile_from    : vị trí cũ của ô vừa di chuyển (= vị trí blank mới).
+      - new_state_1d : trạng thái mới sau khi hoán đổi.
+    """
+    r, c = blank_idx // n, blank_idx % n
+    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < n and 0 <= nc < n:
+            tile_from = nr * n + nc
+            lst = list(state_1d)
+            lst[blank_idx], lst[tile_from] = lst[tile_from], lst[blank_idx]
+            yield tile_from, tuple(lst)
+
+
+# ============================================================
+# 4. HÀM LỢI ÍCH (UTILITY / HEURISTIC)
+#    Đánh giá trạng thái: khoảng cách Manhattan.
+#    Dùng Weighted h → Weighted A* (giải bài toán lớn nhanh hơn).
+# ============================================================
+def utility(state_1d, target_pos, n):
+    """
+    Tính tổng khoảng cách Manhattan từ mỗi ô đến vị trí đích.
+    Dùng một lần duy nhất khi khởi tạo; sau đó dùng incremental O(1).
+    """
+    dist = 0
+    for i, val in enumerate(state_1d):
+        if val != 0:
+            tx, ty = target_pos[val]
+            dist += abs(i // n - tx) + abs(i % n - ty)
+    return dist
+
+
+def incremental_update(h_prev, old_state, tile_from, tile_to, target_pos, n):
+    """
+    Cập nhật heuristic O(1):
+    h_new = h_prev - old_dist(tile) + new_dist(tile)
+    """
+    tile = old_state[tile_from]
+    if tile == 0:
+        return h_prev
+    tx, ty = target_pos[tile]
+    old_r, old_c = tile_from // n, tile_from % n
+    new_r, new_c = tile_to // n, tile_to % n
+    return h_prev - abs(old_r - tx) - abs(old_c - ty) + abs(new_r - tx) + abs(new_c - ty)
+
+
+# ============================================================
+# CÁC HÀM HỖ TRỢ
+# ============================================================
+def _is_solvable(state_1d, n):
+    arr = [x for x in state_1d if x != 0]
+    inv = sum(1 for i in range(len(arr)) for j in range(i+1, len(arr)) if arr[i] > arr[j])
+    blank_idx = state_1d.index(0)
+    blank_row_from_bottom = n - (blank_idx // n)
+    if n % 2 != 0:
+        return inv % 2 == 0
+    return (inv + blank_row_from_bottom) % 2 == 1
+
 class Node:
-    def __init__(self, parent, state_1d, blank_idx, g, h):
-        self.parent = parent
+    __slots__ = ['parent', 'state_1d', 'blank_idx', 'g', 'h', 'f', 'move_idx']
+    def __init__(self, parent, state_1d, blank_idx, g, h, move_idx=-1):
+        self.parent   = parent
         self.state_1d = state_1d
         self.blank_idx = blank_idx
         self.g = g
         self.h = h
         self.f = g + h
+        self.move_idx = move_idx
 
     def __lt__(self, other):
         if self.f == other.f:
-            return self.g > other.g  # Ưu tiên các node có chiều sâu g lớn hơn để đến đích nhanh hơn
+            return self.g > other.g
         return self.f < other.f
 
-# 4. HÀM TÍNH MANHATTAN TỐI ƯU TRÊN MẢNG 1D
-def calculate_manhattan(state_1d, target_pos, n):
-    dist = 0
-    for idx, val in enumerate(state_1d):
-        if val == 0:
-            continue
-        target_r, target_c = target_pos[val]
-        current_r, current_c = idx // n, idx % n
-        dist += abs(target_r - current_r) + abs(target_c - current_c)
-    return dist
-
-# 5. IN ĐƯỜNG ĐI CHI TIẾT
 def print_path(node, n):
     path = []
     curr = node
     while curr:
-        mat_2d = [list(curr.state_1d[i*n:(i+1)*n]) for i in range(n)]
-        path.append(mat_2d)
+        path.append(curr.state_1d)
         curr = curr.parent
-    
-    print(f"-> Tổng số bước di chuyển (Path Length): {len(path) - 1}")
-    # Bạn có thể bỏ comment đoạn dưới nếu muốn in ra từng bước dịch chuyển cụ thể
-    """
-    for i, step in enumerate(reversed(path)):
-        print(f"\n[Bước {i}]")
-        for row in step:
-            print("\t".join(map(str, row)))
-    """
+    path.reverse()
+    print(f"-> Tổng số bước (Path Length): {len(path) - 1}")
+    print("\nChi tiết các bước giải:")
+    for step, p_state in enumerate(path):
+        print(f"\nBước {step}:")
+        for r in range(n):
+            row = p_state[r*n : (r+1)*n]
+            print("\t".join(str(x) if x != 0 else " " for x in row))
 
-# 6. THUẬT TOÁN WEIGHTED A* CHÍNH
-def solve_n_puzzle(initial_mat, final_mat, n, weight=4.0):
-    start_time = time.time()
-    
-    # Flatten dữ liệu sang 1D tuple để tối ưu bộ nhớ và tốc độ băm
-    initial_1d = tuple(item for row in initial_mat for item in row)
-    final_1d = tuple(item for row in final_mat for item in row)
-    
-    if not is_solvable(initial_1d, n):
-        print("CẢNH BÁO: Trạng thái khởi tạo KHÔNG THỂ GIẢI ĐƯỢC!")
+
+# ============================================================
+# THUẬT TOÁN WEIGHTED A* SỬ DỤNG 4 THÀNH PHẦN
+# ============================================================
+def solve_n_puzzle(n, weight=4.0):
+    # --- 1. INITIAL STATE ---
+    initial_1d, final_1d, target_pos = initial_state(n)
+
+    print(f"\nMa trận ban đầu (Initial State) [{n}x{n}]:")
+    for row_i in range(n):
+        print("\t".join(str(initial_1d[row_i*n + c]) if initial_1d[row_i*n + c] != 0 else " " for c in range(n)))
+    print("\nMa trận đích (Terminal/Goal State):")
+    for row_i in range(n):
+        print("\t".join(str(final_1d[row_i*n + c]) if final_1d[row_i*n + c] != 0 else " " for c in range(n)))
+
+    # Kiểm tra khả năng giải
+    if not _is_solvable(initial_1d, n):
+        print("CẢNH BÁO: Trạng thái ban đầu KHÔNG THỂ GIẢI!")
         return
-        
-    # Tính toán trước sơ đồ đích O(1)
-    target_pos = {val: (i // n, i % n) for i, val in enumerate(final_1d)}
-    
+
+    start_time = time.time()
     blank_idx = initial_1d.index(0)
-    initial_h = calculate_manhattan(initial_1d, target_pos, n)
-    
-    # Khởi tạo Node gốc với Heuristic có trọng số (Weighted)
-    root = Node(None, initial_1d, blank_idx, 0, int(initial_h * weight))
-    
+
+    # Tính heuristic ban đầu bằng utility() O(N²) – chỉ 1 lần
+    h0 = utility(initial_1d, target_pos, n)
+
+    root = Node(None, initial_1d, blank_idx, g=0, h=int(h0 * weight))
     pq = [root]
-    visited = {initial_1d: 0} # Lưu trạng thái kèm chi phí g nhỏ nhất
-    expanded_nodes = 0
-    
+    visited = {initial_1d: 0}
+    expanded = 0
+
     while pq:
-        current = heappop(pq)
-        
-        if current.state_1d == final_1d:
-            print("--- ĐÃ TÌM THẤY ĐƯỜNG ĐI ĐẾN ĐÍCH ---")
-            print_path(current, n)
-            print(f"Tổng số trạng thái đã xét (Expanded Nodes): {expanded_nodes}")
-            print(f"Thời gian giải: {time.time() - start_time:.4f} giây")
+        cur = heappop(pq)
+
+        # --- 2. TERMINAL STATE ---
+        if terminal(cur.state_1d, final_1d):
+            print("\n--- ĐÃ TÌM THẤY ĐƯỜNG ĐI ---")
+            print_path(cur, n)
+            print(f"Số trạng thái đã mở rộng: {expanded}")
+            print(f"Thời gian: {time.time() - start_time:.4f}s")
             return
 
-        expanded_nodes += 1
-        
-        r, c = current.blank_idx // n, current.blank_idx % n
-        
-        # Xác định các index lệch hợp lệ trên mảng 1D tương ứng (Lên, Xuống, Trái, Phải)
-        moves = []
-        if r > 0: moves.append(-n)     # Di chuyển lên
-        if r < n - 1: moves.append(n)  # Di chuyển xuống
-        if c > 0: moves.append(-1)     # Di chuyển sang trái
-        if c < n - 1: moves.append(1)  # Di chuyển sang phải
-        
-        for offset in moves:
-            new_blank_idx = current.blank_idx + offset
-            
-            # Tráo đổi phần tử nhanh trên List
-            next_state = list(current.state_1d)
-            next_state[current.blank_idx], next_state[new_blank_idx] = next_state[new_blank_idx], next_state[current.blank_idx]
-            next_state_tuple = tuple(next_state)
-            
-            new_g = current.g + 1
-            
-            if next_state_tuple not in visited or new_g < visited[next_state_tuple]:
-                visited[next_state_tuple] = new_g
-                h = calculate_manhattan(next_state_tuple, target_pos, n)
-                # Nhân thêm trọng số weight để định hướng tìm kiếm mạnh mẽ hơn cho ma trận lớn
-                child = Node(current, next_state_tuple, new_blank_idx, new_g, int(h * weight))
-                heappush(pq, child)
-                
-    print("Không tìm thấy đường đi giải bài toán.")
+        expanded += 1
 
-# --- KHỞI CHẠY THỬ NGHIỆM VỚI N = 6 (Ma trận 6x6) ---
+        # --- 3. SUCCESSORS ---
+        for tile_from, new_state in successors(cur.state_1d, cur.blank_idx, n):
+            new_g = cur.g + 1
+            if new_state not in visited or new_g < visited[new_state]:
+                visited[new_state] = new_g
+
+                # --- 4. UTILITY (incremental O(1)) ---
+                raw_h = incremental_update(
+                    cur.h // weight if weight != 0 else cur.h,
+                    cur.state_1d, tile_from, cur.blank_idx, target_pos, n)
+                weighted_h = int(raw_h * weight)
+                
+                new_blank = tile_from
+                child = Node(cur, new_state, new_blank, new_g, weighted_h, tile_from)
+                heappush(pq, child)
+
+    print("Không tìm thấy đường đi!")
+
+
 if __name__ == "__main__":
-    n = 6  # Thử nghiệm kích thước n > 5 theo yêu cầu của bạn
-    print(f"Đang khởi tạo ma trận ngẫu nhiên kích thước {n}x{n}...")
-    
-    initial_matrix = generate_solvable_state(n)
-    
-    # Định nghĩa trạng thái đích mong muốn (Thứ tự tăng dần, ô trống 0 ở cuối)
-    final_list = list(range(1, n*n)) + [0]
-    final_matrix = [final_list[i*n:(i+1)*n] for i in range(n)]
-    
-    print("\nMa trận khởi đầu (Random):")
-    for r in initial_matrix:
-        print("\t".join(map(str, r)))
-        
-    print("\nMa trận đích (Target Ascending):")
-    for r in final_matrix:
-        print("\t".join(map(str, r)))
-    
-    print("\nĐang tiến hành giải bằng Weighted A*...")
-    # Khuyến nghị: n=6 chọn weight từ 3.5 -> 5.0 để đạt tốc độ xử lý dưới 5 giây.
-    solve_n_puzzle(initial_matrix, final_matrix, n, weight=4.0)
+    while True:
+        try:
+            n = int(input("Nhập kích thước lưới n (khuyên 3-5): "))
+            if n > 0:
+                break
+        except ValueError:
+            pass
+            
+    print(f"Khởi tạo ma trận {n}x{n}...")
+    print("Đang giải bằng Weighted A* (weight=4.0)...")
+    solve_n_puzzle(n, weight=4.0)

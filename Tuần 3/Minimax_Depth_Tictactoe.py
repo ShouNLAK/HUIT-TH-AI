@@ -6,7 +6,12 @@ EMPTY = " "
 
 def initial_state(size, win_length, first_player):
     """
-    1. Trạng thái ban đầu: Dùng chung 1 Global State (Mảng 1 chiều)
+    1. TRẠNG THÁI BAN ĐẦU (INITIAL STATE)
+       - board     : mảng 1D size*size ô, ban đầu toàn EMPTY.
+       - turn      : first_player (X hoặc O) – người đi nước đầu tiên.
+       - win_length: số ô liên tiếp cần thiết để thắng.
+       - candidate_moves: tập ô ứng viên (khởi đầu rỗng).
+       - neighbor_count  : số lân cận đã có quân (dùng cho move ordering).
     """
     return {
         'board': [EMPTY] * (size * size),
@@ -90,9 +95,13 @@ def undo_move(state, idx):
         state['candidate_moves'].add(idx)
 
 def successors(state):
-    """ 
-    2. Hàm chuyển trạng thái: Generator (yield) để tiết kiệm RAM. 
-       Kết hợp Move Ordering sắp xếp theo neighbor_count.
+    """
+    3. HÀM CHUYỂN TRẠNG THÁI (SUCCESSORS)
+       Sinh các nước đi hợp lệ từ trạng thái hiện tại theo thứ tự
+       ưu tiên (Move Ordering: ô có nhiều lân cận nhất trước).
+       Yield: move_idx (nước đi = chỉ số ô 1D).
+       Trạng thái mới được tạo bằng make_move(state, move_idx).
+       Nếu bàn trống, đi vào tâm trước.
     """
     sorted_moves = sorted(list(state['candidate_moves']), key=lambda idx: state['neighbor_count'][idx], reverse=True)
     if not sorted_moves and state['played_count'] == 0:
@@ -136,7 +145,12 @@ def get_winner(state):
     return None
 
 def terminal(state):
-    """ Hòa kiểm tra trong O(1) """
+    """
+    2. TRẠNG THÁI KẾT THÚC (TERMINAL STATE)
+       Trả về True nếu:
+         (a) Có người thắng (get_winner != None), HOẶC
+         (b) Bàn cờ đầy (hòa).
+    """
     if get_winner(state) is not None:
         return True
     if state['played_count'] == state['size'] * state['size']:
@@ -144,7 +158,15 @@ def terminal(state):
     return False
 
 def utility(state, current_depth=0):
-    """Hàm đánh giá Caro/TicTacToe với threat detection."""
+    """
+    4. HÀM LỢI ÍCH (UTILITY FUNCTION)
+       Đánh giá trạng thái:
+         - Nếu X thắng  → +1000 - current_depth (thắng sớm tốt hơn).
+         - Nếu O thắng  → -1000 + current_depth.
+         - Hòa          → 0.
+         - Chưa kết thúc → đếm chuỗi mở (threats) của từng bên.
+           Trọng số: win_length chuỗi = 100, (wl-1) = 10, (wl-2) = 3.
+    """
     w = get_winner(state)
     if w == X:  return  1000 - current_depth
     if w == O:  return -1000 + current_depth
@@ -199,8 +221,9 @@ def minimax(state, depth, is_maximizing, indent=0, current_depth=0):
         return u
         
     if depth == 0:
-        print(f"{indent_str}-> Chạm giới hạn độ sâu (Depth=0). Trả về điểm: 0")
-        return 0
+        u = utility(state)
+        print(f"{indent_str}-> Chạm giới hạn độ sâu (Depth=0). Trả về điểm: {u}")
+        return u
 
     if is_maximizing:
         print(f"{indent_str}[MAX-X] Xét nước đi (Depth còn {depth})...")

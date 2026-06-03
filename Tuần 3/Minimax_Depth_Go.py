@@ -1,4 +1,4 @@
-import copy
+from collections import deque
 import math
 
 # Ký hiệu quân cờ
@@ -12,6 +12,14 @@ def get_initial_board(size):
     return [[EMPTY for _ in range(size)] for _ in range(size)]
 
 def initial_state(size):
+    """
+    1. TRẠNG THÁI BAN ĐẦU (INITIAL STATE)
+       - board      : lưới size×size toàn ô trống ('.').
+       - turn       : BLACK ('B') – đen đi trước theo luật Cờ Vây.
+       - pass_count : 0 – đếm số lần PASS liên tiếp.
+       - B_captured / W_captured: số quân đã bị bắt.
+       - history    : tập các vị trí đã từng xuất hiện (chống KO).
+    """
     b = get_initial_board(size)
     b_tup = tuple(tuple(r) for r in b)
     return {
@@ -38,10 +46,10 @@ def get_group_and_liberties(board, r, c):
     
     group = set()
     liberties = set()
-    frontier = [(r, c)]
+    frontier = deque([(r, c)])
     
     while frontier:
-        cr, cc = frontier.pop(0)
+        cr, cc = frontier.popleft()
         if (cr, cc) in group: continue
         group.add((cr, cc))
         
@@ -57,7 +65,7 @@ def get_group_and_liberties(board, r, c):
     return group, liberties
 
 def apply_move(board, turn, r, c):
-    new_board = copy.deepcopy(board)
+    new_board = [row[:] for row in board]
     new_board[r][c] = turn
     
     opp_color = WHITE if turn == BLACK else BLACK
@@ -82,14 +90,26 @@ def apply_move(board, turn, r, c):
     return new_board, len(captured_stones)
 
 def terminal(state):
-    """Kết thúc khi cả hai phe đều PASS liên tiếp (pass_count >= 2).
-    Cần ít nhất 2 quân đã đặt để tránh kết thúc ngay từ đầu."""
+    """
+    2. TRẠNG THÁI KẾT THÚC (TERMINAL STATE)
+       Trả về True khi cả hai phe PASS liên tiếp (pass_count >= 2).
+       Yêu cầu ít nhất 2 nước đã đi để tránh kết thúc ngay.
+    """
     if state['played_count'] < 2:
         return False
     return state.get('pass_count', 0) >= 2
 
 def successors(state):
-    """Sinh các nước đi hợp lệ. Ưu tiên đặt quân trung tâm, PASS cuối cùng."""
+    """
+    3. HÀM CHUYỂN TRẠNG THÁI (SUCCESSORS)
+       Sinh tất cả nước đi hợp lệ:
+         - Đặt quân (không tự sát, không lặp KO): ưu tiên gần trung tâm.
+         - PASS (-1,-1): luôn ở cuối danh sách (AI chỉ chọn khi không
+           còn nước nào tốt hơn).
+       Yield: (action, next_state)
+         - action    : (r, c) tọa độ đặt quân, hoặc (-1,-1) là PASS.
+         - next_state: dict trạng thái mới đầy đủ.
+    """
     board = state['board']
     turn  = state['turn']
     size  = state['size']
@@ -139,7 +159,16 @@ def successors(state):
     }
 
 def utility(state, current_depth=0):
-    """Đánh giá bàn cờ Cờ Vây bằng territory flood-fill + stones + liberties."""
+    """
+    4. HÀM LỢI ÍCH (UTILITY FUNCTION)
+       Đánh giá bàn cờ Cờ Vây:
+         - Điểm quân (stones)   : mỗi quân = 10 điểm.
+         - Quân bị bắt          : mỗi quân = 10 điểm thưởng.
+         - Khí (liberties)      : mỗi khí = 3 điểm (nhóm chưa tính).
+         - Vùng kiểm soát (territory): flood-fill ô trống, nếu chỉ 1
+           màu bao quanh → +5 điểm/ô cho màu đó.
+       Trả về: b_score - w_score (dương = Đen lợi thế).
+    """
     board = state['board']
     size  = state['size']
 
